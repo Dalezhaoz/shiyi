@@ -10,6 +10,7 @@ build/
 # 皮肤素材（版权原因，不入仓库）
 skins/*/
 !skins/README.md
+!skins/elephant/
 
 # 日志
 *.log

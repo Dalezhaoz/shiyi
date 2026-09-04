@@ -1074,8 +1074,8 @@ ipcMain.handle('app:get-info', () => {
     description: pkg.description || '',
     version: app.getVersion() || pkg.version || '',
     author: pkg.author || '',
-    repo: 'https://github.com/jinyuwan/PetAI-Desktop-Pet',
-    homepage: 'https://github.com/jinyuwan',
+    repo: 'https://github.com/Dalezhaoz/shiyi',
+    homepage: 'https://github.com/Dalezhaoz',
   };
   return appInfoCache;
 });
@@ -1094,7 +1094,7 @@ ipcMain.on('app:quit', () => {
 
 /* ---------- 自动更新（GitHub Releases） ---------- */
 
-const REPO_API = 'https://api.github.com/repos/jinyuwan/PetAI-Desktop-Pet';
+const REPO_API = 'https://api.github.com/repos/Dalezhaoz/shiyi';
 
 /** 比较语义化版本号：a > b 返回 1，相等返回 0，a < b 返回 -1 */
 function compareVersions(a, b) {

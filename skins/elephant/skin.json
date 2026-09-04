@@ -1,0 +1,43 @@
+{
+  "name": "elephant",
+  "petName": "小象",
+  "author": "hatch-pet",
+  "version": "1.0",
+  "source": "本地生成皮肤",
+  "spine": {
+    "skeleton": "elephant-skeleton.json",
+    "atlas": "elephant.atlas",
+    "png": "elephant.png",
+    "skin": "default"
+  },
+  "states": {
+    "idle": "idle",
+    "思考": "review",
+    "等待": "wait",
+    "跑步": "run",
+    "向右跑": "run-right",
+    "向左跑": "run-left",
+    "挥手": "wave",
+    "开心": "wave",
+    "完成": "wave",
+    "跳跃": "jump"
+  },
+  "extraStates": {
+    "失败": "fail",
+    "环顾": "look"
+  },
+  "poseNames": {
+    "idle": "发呆",
+    "思考": "思考中",
+    "等待": "等待",
+    "跑步": "跑步",
+    "向右跑": "向右跑",
+    "向左跑": "向左跑",
+    "挥手": "挥手",
+    "开心": "开心",
+    "完成": "任务完成",
+    "跳跃": "跳跃",
+    "失败": "失败躺倒",
+    "环顾": "环顾四周"
+  }
+}

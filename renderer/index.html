@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; img-src 'self' data: skin:; style-src 'self' 'unsafe-inline'; connect-src 'self' skin:">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; img-src 'self' data: skin:; style-src 'self' 'unsafe-inline'; connect-src 'self' skin:">
   <title>AI 桌面宠物</title>
   <link rel="stylesheet" href="styles.css">
 </head>
@@ -32,8 +32,8 @@
   <!-- 状态提示：默认隐藏，仅加载/错误时显示 -->
   <div class="status-tip hidden" id="status-tip"></div>
 
-  <!-- Spine Player 运行时（CDN） -->
-  <script src="https://cdn.jsdelivr.net/npm/@esotericsoftware/spine-player@4.2.119/dist/iife/spine-player.min.js"></script>
+  <!-- Spine Player 运行时（本地 vendored，避免 CDN 依赖） -->
+  <script src="vendor/spine-player.min.js"></script>
   <script src="theme.js"></script>
   <script src="app.js"></script>
 </body>
