@@ -1270,21 +1270,46 @@ ipcMain.on('update:download', async (e, payload) => {
     }
 
     if (sender && !sender.isDestroyed()) sender.send('update:done', { file });
-    // 系统通知：新版本已就绪，即将静默安装并重启
-    if (Notification.isSupported()) {
-      try {
-        const n = new Notification({
-          title: '✨ PetAI 更新完成下载',
-          body: '新版本即将自动安装，安装完成后会自动重启。',
-        });
-        n.show();
-      } catch (err) { /* ignore */ }
+    // 下载完成先弹确认框：用户点击「安装」再启动安装器（Windows 安全提示此时更稳定地弹出，
+    // 点「仍要运行」即完成安装；直接静默启动曾出现被系统拦截、无任何提示的情况）
+    const { response } = await dialog.showMessageBox({
+      type: 'info',
+      title: 'PetAI 更新',
+      message: '新版本已下载完成',
+      detail: '点击「安装」开始更新。若 Windows 弹出安全提示，请选择「仍要运行」。' +
+              '安装完成后应用会自动重启。',
+      buttons: ['安装', '稍后再说'],
+      defaultId: 0,
+      cancelId: 1,
+    });
+    if (response !== 0) {
+      if (sender && !sender.isDestroyed()) sender.send('update:error', '已取消安装（安装包保留在临时目录）');
+      return;
     }
     // /S 静默安装 + --updated 标记：覆盖旧版本，安装完成后自动启动新版本
-    const proc = spawn(file, ['/S', '--updated'], { detached: true, stdio: 'ignore' });
-    proc.unref();
-    isQuitting = true;
-    setTimeout(() => app.quit(), 800); // 给安装器一点启动时间再退出
+    try {
+      const proc = spawn(file, ['/S', '--updated'], { detached: true, stdio: 'ignore' });
+      proc.unref();
+      isQuitting = true;
+      setTimeout(() => app.quit(), 1500); // 留足时间让安装器完成启动与替换准备
+    } catch (spawnErr) {
+      // 静默启动被系统拦截（SmartScreen / 杀软）→ 保留安装包，提供手动打开入口
+      console.warn('[update] 静默安装启动失败:', spawnErr.message || spawnErr);
+      if (sender && !sender.isDestroyed()) {
+        sender.send('update:error', '静默安装被拦截，请手动安装（安装包已保留）');
+      }
+      const r2 = await dialog.showMessageBox({
+        type: 'warning',
+        title: 'PetAI 更新',
+        message: '静默安装被系统拦截',
+        detail: '这是 Windows 对未签名安装包的常见拦截。点击「打开安装包」手动运行，' +
+                '选择「仍要运行」并跟随向导完成安装。\n\n安装包位置：' + file,
+        buttons: ['打开安装包', '稍后再说'],
+        defaultId: 0,
+        cancelId: 1,
+      });
+      if (r2.response === 0) shell.openPath(file);
+    }
   } catch (err) {
     try { fs.unlinkSync(file); } catch (e2) { /* ignore */ }
     if (sender && !sender.isDestroyed()) sender.send('update:error', err.message || String(err));
