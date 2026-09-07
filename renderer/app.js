@@ -17,6 +17,7 @@
   let skinLoadToken = 0;   // 皮肤加载序列号：连续切换时丢弃迟到的旧回调
   let currentState = 'idle';
   let autoPose = true;     // 跟随 AI：自动模式（与设置窗口同步）
+  let silentMode = false;  // 静默模式：停止自主动作/打盹/气泡，保持静止
   let isSleeping = false;  // 打盹中（长时间无互动）
   let lastIdleMinutes = 0; // 最近一次空闲分钟数（主进程推送）
 
@@ -99,7 +100,7 @@
 
   /** 播放一个自主动作：随机挑一个姿态，持续 4~13 秒后回基准姿态 */
   function playAction() {
-    if (!player || !autoPose) return;
+    if (!player || !autoPose || silentMode) return;
     if (Date.now() < interactionLock) return; // 交互期间不打扰
     const base = basePose();
     const act = randomActionPose();
@@ -301,10 +302,23 @@
   window.pet.onAutoPoseChange((val) => {
     autoPose = !!val;
     console.log('[pet] 跟随 AI 模式 →', autoPose);
-    if (autoPose) {
+    if (autoPose && !silentMode) {
       startAutoActions();   // 恢复自主行为
     } else {
       stopAutoActions();    // 手动锁定：暂停自主行为
+    }
+  });
+
+  /* ---------- 静默模式：停止自主行为，回到基准姿态保持静止 ---------- */
+  window.pet.onSilentChanged((val) => {
+    silentMode = !!val;
+    console.log('[pet] 静默模式 →', silentMode);
+    if (silentMode) {
+      stopAutoActions();
+      const base = basePose();
+      if (base) setState(base);
+    } else if (autoPose) {
+      startAutoActions();
     }
   });
 
@@ -370,6 +384,7 @@
 
   window.pet.onIdleTick(({ idleMinutes }) => {
     lastIdleMinutes = idleMinutes || 0;
+    if (silentMode) return; // 静默：不打盹不唤醒，保持静止
     if (lastIdleMinutes >= 10) sleepPet();
     else if (lastIdleMinutes < 10) wakePet();
   });
@@ -388,9 +403,9 @@
   let lastGreetingDate = '';   // 上次问候的日期 key
   let lastMumbleTime = 0;      // 上次自言自语时间戳
 
-  /** 每 30 秒检查一次时间相关行为（睡眠时不打扰） */
+  /** 每 30 秒检查一次时间相关行为（睡眠/静默时不打扰） */
   function timeTick() {
-    if (isSleeping) return;
+    if (isSleeping || silentMode) return;
     const now = new Date();
     const h = now.getHours();
     const m = now.getMinutes();
@@ -478,7 +493,8 @@
       window.pet.getSettingsState().then((s) => {
         if (s) {
           autoPose = !!s.autoPose;
-          if (autoPose) startAutoActions(); // 皮肤就绪前先启动，playAction 内会兜底
+          silentMode = !!s.silentMode;
+          if (autoPose && !silentMode) startAutoActions(); // 皮肤就绪前先启动，playAction 内会兜底
         }
       }).catch(() => {});
       await loadActiveSkin();

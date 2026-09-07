@@ -1447,6 +1447,8 @@ ipcMain.on('pet:set-silent', (e, val) => {
     if (chatHideTimer) { clearTimeout(chatHideTimer); chatHideTimer = null; }
     setChatVisible(false);
   }
+  // 同步宠物窗口：静默时停止自主动作/打盹/气泡，保持静止
+  if (win && !win.isDestroyed()) win.webContents.send('pet:silent-changed', silentMode);
 });
 
 /** 设置窗口 → 切换"跟随 AI"自动姿势模式 */
@@ -1516,6 +1518,7 @@ app.whenReady().then(() => {
   createTray();
   startIdleTick();
   startAutoUpdateCheck(); // 启动后静默检查新版本
+
 
 
 

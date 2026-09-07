@@ -147,6 +147,9 @@ contextBridge.exposeInMainWorld('pet', {
   /** 宠物窗口：监听自动模式变化 */
   onAutoPoseChange: (cb) => ipcRenderer.on('pet:auto-pose-changed', (e, val) => cb(val)),
 
+  /** 宠物窗口：监听静默模式变化（静默时停止自主行为保持静止） */
+  onSilentChanged: (cb) => ipcRenderer.on('pet:silent-changed', (e, val) => cb(val)),
+
   /** 打开设置窗口（手柄 ☰ 设置键调用） */
   openSettings: () => ipcRenderer.send('pet:open-settings'),
 
