@@ -243,7 +243,7 @@ function createChatWindow() {
     alwaysOnTop: true,
     skipTaskbar: true,
     resizable: true, // 统一面板:允许拖拽边缘调整大小(程序化 setSize 也不受限制)
-    hasShadow: false,
+    hasShadow: true, // 面板在浅色桌面背景上更有质感
     backgroundColor: '#00000000',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),

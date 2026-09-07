@@ -478,8 +478,8 @@
       const el = document.getElementById(id);
       if (el) el.textContent = tpl.replace('{n}', n);
     };
-    set('desc-visible', '在桌面上显示 / 隐藏{n}');
-    set('desc-theme', '自定义{n}的整体配色，实时应用到对话框 / 设置 / 手柄');
+    set('desc-visible', '隐藏{n}后仅保留会话面板，可原地恢复');
+    set('desc-theme', '自定义{n}的整体配色，实时应用到面板 / 宠物');
     set('desc-reminder', '到点让{n}跳出来提醒你');
     set('desc-callname', '{n}怎么称呼你');
   }
@@ -776,7 +776,7 @@
 
   animSpeedSlider.addEventListener('input', () => {
     const v = animSpeedSlider.value;
-    descAnimSpeed.textContent = v + '×';
+    descAnimSpeed.textContent = (Math.round(parseFloat(v) * 100) / 100).toFixed(2) + '×';
     window.pet.setAnimSpeed(parseFloat(v)); // 实时应用
   });
 
@@ -822,7 +822,7 @@
       swAuto.setAttribute('aria-checked', String(!!state.autoPose));
       const speed = Number(state.animSpeed) || 0.75;
       animSpeedSlider.value = speed;
-      descAnimSpeed.textContent = speed + '×';
+      descAnimSpeed.textContent = speed.toFixed(2) + '×';
       highlightPose(state.currentState || 'idle');
     } catch (e) {
       console.warn('[settings] 读取状态失败:', e.message);
@@ -856,7 +856,7 @@
   // 重置窗口大小（显示面板）
   document.getElementById('btn-reset-size').addEventListener('click', () => window.pet.resize('reset'));
 
-  // 重置设置面板大小（显示面板）：恢复默认 520 × 620
+  // 恢复面板默认大小（显示面板）：恢复默认 520 × 620
   document.getElementById('btn-reset-settings-size').addEventListener('click', () => window.pet.resetSettingsSize());
 
   /* ---------- 初始化 ---------- */

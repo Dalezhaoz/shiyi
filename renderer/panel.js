@@ -18,6 +18,11 @@
     tabs.forEach((b) => b.classList.toggle('active', b.dataset.tab === tab));
     chatView.hidden = tab !== 'chat';
     settingsView.hidden = tab !== 'settings';
+    // 视图切换淡入
+    const view = tab === 'chat' ? chatView : settingsView;
+    view.classList.remove('view-in');
+    void view.offsetWidth; // 强制重排,重新触发动画
+    view.classList.add('view-in');
     window.pet.panelSwitchTab(tab);
   }
 

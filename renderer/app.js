@@ -19,10 +19,11 @@
   let autoPose = true;     // 跟随 AI：自动模式（与设置窗口同步）
   let suspended = false;    // 宠物隐藏时挂起：停止动作/休息/气泡
   let animSpeed = 0.75;     // 动作速度系数（设置里可调，0.3~2.0）
-  let restState = 'active'; // 休息状态：active 正常 | still 不动 | sleep 趴着睡觉
+  let restState = 'active'; // 休息状态：active 正常 | still 站立不动
   let lastActivity = Date.now(); // 最近一次互动时间（20 秒无互动进入休息）
   let lastIdleMinutes = 0; // 最近一次空闲分钟数（主进程推送）
   const REST_IDLE_MS = 20000;
+  const REST_SPEED_FACTOR = 0.15; // 休息时动作放到极慢（几乎不动，保留微弱呼吸感）
 
   /** 当前宠物名：皮肤 petName → 皮肤名 → 「蕾米」 */
   function petName() {
@@ -263,10 +264,7 @@
             return;
           }
           player = instance;
-          // 全局动作速度(设置里可调,所有动画统一缩放)
-          try {
-            if (player.animationState) player.animationState.timeScale = animSpeed;
-          } catch (e) { /* ignore */ }
+          applyTimeScale(); // 全局动作速度(设置里可调,休息时极慢)
           const pose = basePose();
           if (pose) setState(pose);
         },
@@ -285,8 +283,8 @@
   window.pet.startHoverWatch().then(() => {
     window.pet.onHoverChange((inside) => {
       if (inside) {
-        markActivity();
-        exitRest(); // 鼠标进入 → 结束休息
+        exitRest();                 // 鼠标进入 → 结束休息
+        lastActivity = Date.now();  // 给一段新的 20 秒窗口(悬停本身不算互动)
       }
     });
   });
@@ -322,9 +320,7 @@
   /* ---------- 动作速度：设置滑杆实时调整 ---------- */
   window.pet.onAnimSpeedChanged((val) => {
     animSpeed = Number(val) || 0.75;
-    if (player && player.animationState) {
-      player.animationState.timeScale = animSpeed;
-    }
+    applyTimeScale();
   });
 
   /* ---------- 挂起/恢复（显示宠物开关驱动：隐藏时挂起，显示时恢复） ---------- */
@@ -388,20 +384,21 @@
     lastActivity = Date.now();
   }
 
+  /** 应用当前速度：休息时极慢（几乎不动），正常时按设置值 */
+  function applyTimeScale() {
+    if (player && player.animationState) {
+      player.animationState.timeScale =
+        restState !== 'active' ? animSpeed * REST_SPEED_FACTOR : animSpeed;
+    }
+  }
+
   function enterRest() {
     if (restState !== 'active' || suspended) return;
-    stopAutoActions();
-    if (Math.random() < 0.5) {
-      // 趴着睡觉：用皮肤的躺倒姿态（无专门睡姿时回退发呆）
-      restState = 'sleep';
-      const pose = findPose(['失败']) || basePose();
-      if (pose) setState(pose);
-    } else {
-      // 不动：回基准姿态，停止随机动作
-      restState = 'still';
-      const base = basePose();
-      if (base) setState(base);
-    }
+    stopAutoActions();       // 停止随机动作
+    restState = 'still';
+    const base = basePose(); // 站立（基准姿态）
+    if (base) setState(base);
+    applyTimeScale();        // 几乎不动
   }
 
   function exitRest() {
@@ -409,6 +406,7 @@
     restState = 'active';
     const base = basePose();
     if (base) setState(base);
+    applyTimeScale();        // 恢复正常速度
     if (autoPose && !suspended) startAutoActions();
   }
 
@@ -526,6 +524,7 @@
         if (s) {
           autoPose = !!s.autoPose;
           animSpeed = Number(s.animSpeed) || 0.75;
+          applyTimeScale(); // 皮肤可能已先加载，速度同步一次
           if (autoPose && !suspended) startAutoActions(); // 皮肤就绪前先启动，playAction 内会兜底
         }
       }).catch(() => {});
