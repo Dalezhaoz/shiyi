@@ -1329,11 +1329,8 @@ function startHoverWatch() {
       win.webContents.send('pet:hover-state', inside);
     }
 
-    // 面板：静默模式下不显示；托盘打开的设置先固定，鼠标到达宠物/面板后转为普通 hover 显隐
-    if (silentMode) {
-      if (chatHideTimer) { clearTimeout(chatHideTimer); chatHideTimer = null; }
-      setChatVisible(false);
-    } else if (panelPinned) {
+    // 面板：托盘打开的设置先固定，鼠标到达宠物/面板后转为普通 hover 显隐（静默不影响面板）
+    if (panelPinned) {
       if (chatHideTimer) { clearTimeout(chatHideTimer); chatHideTimer = null; }
       if (inside) panelPinned = false; // 鼠标已到达 → 之后按 hover 规则走
       else setChatVisible(true);
@@ -1388,16 +1385,14 @@ ipcMain.on('pet:resize', (e, dir) => {
 
 /* ---------- 系统托盘 & 设置窗口 ---------- */
 
-/** 显示/隐藏宠物主窗口（隐藏时联动隐藏对话框） */
+/** 显示/隐藏宠物主窗口（面板保留：设置里的开关要能原地切回） */
 function togglePetVisible() {
   if (!win || win.isDestroyed()) return;
   if (win.isVisible()) {
     win.hide();
-    if (chatWin && !chatWin.isDestroyed()) chatWin.hide();
   } else {
     win.show();
     win.setAlwaysOnTop(true, 'screen-saver');
-    if (chatWin && !chatWin.isDestroyed()) chatWin.show();
   }
 }
 
@@ -1443,11 +1438,7 @@ ipcMain.handle('settings:get-state', () => ({
 /** 设置窗口 → 切换静默模式 */
 ipcMain.on('pet:set-silent', (e, val) => {
   silentMode = !!val;
-  if (silentMode) {
-    if (chatHideTimer) { clearTimeout(chatHideTimer); chatHideTimer = null; }
-    setChatVisible(false);
-  }
-  // 同步宠物窗口：静默时停止自主动作/打盹/气泡，保持静止
+  // 同步宠物窗口：静默时停止自主动作/打盹/气泡，保持静止（面板不受影响）
   if (win && !win.isDestroyed()) win.webContents.send('pet:silent-changed', silentMode);
 });
 
@@ -1518,6 +1509,7 @@ app.whenReady().then(() => {
   createTray();
   startIdleTick();
   startAutoUpdateCheck(); // 启动后静默检查新版本
+
 
 
 
