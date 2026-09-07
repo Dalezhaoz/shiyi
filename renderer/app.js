@@ -18,6 +18,7 @@
   let currentState = 'idle';
   let autoPose = true;     // 跟随 AI：自动模式（与设置窗口同步）
   let silentMode = false;  // 静默模式：停止自主动作/打盹/气泡，保持静止
+  let animSpeed = 0.75;     // 动作速度系数（设置里可调，0.3~2.0）
   let isSleeping = false;  // 打盹中（长时间无互动）
   let lastIdleMinutes = 0; // 最近一次空闲分钟数（主进程推送）
 
@@ -260,6 +261,10 @@
             return;
           }
           player = instance;
+          // 全局动作速度(设置里可调,所有动画统一缩放)
+          try {
+            if (player.animationState) player.animationState.timeScale = animSpeed;
+          } catch (e) { /* ignore */ }
           const pose = basePose();
           if (pose) setState(pose);
         },
@@ -306,6 +311,14 @@
       startAutoActions();   // 恢复自主行为
     } else {
       stopAutoActions();    // 手动锁定：暂停自主行为
+    }
+  });
+
+  /* ---------- 动作速度：设置滑杆实时调整 ---------- */
+  window.pet.onAnimSpeedChanged((val) => {
+    animSpeed = Number(val) || 0.75;
+    if (player && player.animationState) {
+      player.animationState.timeScale = animSpeed;
     }
   });
 
@@ -494,6 +507,7 @@
         if (s) {
           autoPose = !!s.autoPose;
           silentMode = !!s.silentMode;
+          animSpeed = Number(s.animSpeed) || 0.75;
           if (autoPose && !silentMode) startAutoActions(); // 皮肤就绪前先启动，playAction 内会兜底
         }
       }).catch(() => {});

@@ -150,6 +150,10 @@ contextBridge.exposeInMainWorld('pet', {
   /** 宠物窗口：监听静默模式变化（静默时停止自主行为保持静止） */
   onSilentChanged: (cb) => ipcRenderer.on('pet:silent-changed', (e, val) => cb(val)),
 
+  /** 动作速度：设置滑杆实时调整（0.3~2.0） */
+  setAnimSpeed: (val) => ipcRenderer.send('pet:set-anim-speed', val),
+  onAnimSpeedChanged: (cb) => ipcRenderer.on('pet:anim-speed-changed', (e, val) => cb(val)),
+
   /** 打开设置窗口（手柄 ☰ 设置键调用） */
   openSettings: () => ipcRenderer.send('pet:open-settings'),
 

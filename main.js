@@ -49,7 +49,7 @@ const companionFile = () => path.join(app.getPath('userData'), 'companion.json')
 const prefsFile = () => path.join(app.getPath('userData'), 'prefs.json');
 
 let companion = { firstSeen: Date.now(), lastSeen: Date.now(), interactions: 0, chats: 0 };
-let prefs = { userName: '', panelSize: null, lastUpdatePrompted: '', theme: '#e8a0bf', skinId: '', petName: '' };
+let prefs = { userName: '', panelSize: null, lastUpdatePrompted: '', theme: '#e8a0bf', skinId: '', petName: '', animSpeed: 0 };
 
 function loadCompanion() {
   try {
@@ -88,6 +88,9 @@ function loadPrefs() {
     }
     if (raw && typeof raw.petName === 'string') {
       prefs.petName = raw.petName.trim().slice(0, 20);
+    }
+    if (typeof raw.animSpeed === 'number' && isFinite(raw.animSpeed)) {
+      prefs.animSpeed = clampAnimSpeed(raw.animSpeed);
     }
   } catch (e) { /* 默认 */ }
   return prefs;
@@ -887,6 +890,12 @@ ipcMain.on('skins:set-active', (e, skinId) => {
 
 /** 当前宠物名：取启用皮肤 petName，缺省「蕾米」（带缓存，避免每次 AI 请求重复扫盘） */
 let petNameCache = { skinId: null, name: '蕾米' };
+/** 动作速度系数:0.3~2.0,默认 0.75 */
+const DEFAULT_ANIM_SPEED = 0.75;
+function clampAnimSpeed(v) {
+  return Math.max(0.3, Math.min(2.0, Number(v) || DEFAULT_ANIM_SPEED));
+}
+
 function getPetName() {
   const key = (prefs.skinId || '') + '|' + (prefs.petName || '');
   if (petNameCache.skinId === key) return petNameCache.name;
@@ -1433,6 +1442,7 @@ ipcMain.handle('settings:get-state', () => ({
   currentState: currentPetState,
   autoPose,
   silentMode,
+  animSpeed: clampAnimSpeed(prefs.animSpeed || DEFAULT_ANIM_SPEED),
 }));
 
 /** 设置窗口 → 切换静默模式 */
@@ -1440,6 +1450,15 @@ ipcMain.on('pet:set-silent', (e, val) => {
   silentMode = !!val;
   // 同步宠物窗口：静默时停止自主动作/打盹/气泡，保持静止（面板不受影响）
   if (win && !win.isDestroyed()) win.webContents.send('pet:silent-changed', silentMode);
+});
+
+/** 设置窗口 → 调整动作速度系数 */
+ipcMain.on('pet:set-anim-speed', (e, val) => {
+  prefs.animSpeed = clampAnimSpeed(val);
+  savePrefs();
+  if (win && !win.isDestroyed()) {
+    win.webContents.send('pet:anim-speed-changed', prefs.animSpeed);
+  }
 });
 
 /** 设置窗口 → 切换"跟随 AI"自动姿势模式 */
@@ -1509,6 +1528,7 @@ app.whenReady().then(() => {
   createTray();
   startIdleTick();
   startAutoUpdateCheck(); // 启动后静默检查新版本
+
 
 
 

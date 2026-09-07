@@ -770,6 +770,17 @@
     userNameStatus.className = 'ai-status ok';
   });
 
+  /* ---------- 动作速度滑杆（显示面板） ---------- */
+
+  const animSpeedSlider = document.getElementById('anim-speed');
+  const descAnimSpeed = document.getElementById('desc-anim-speed');
+
+  animSpeedSlider.addEventListener('input', () => {
+    const v = animSpeedSlider.value;
+    descAnimSpeed.textContent = v + '×';
+    window.pet.setAnimSpeed(parseFloat(v)); // 实时应用
+  });
+
   /* ---------- 宠物名字编辑（显示面板） ---------- */
 
   const petNameInput = document.getElementById('pet-name');
@@ -811,6 +822,9 @@
       swTop.setAttribute('aria-checked', String(!!state.alwaysOnTop));
       swAuto.setAttribute('aria-checked', String(!!state.autoPose));
       swSilent.setAttribute('aria-checked', String(!!state.silentMode));
+      const speed = Number(state.animSpeed) || 0.75;
+      animSpeedSlider.value = speed;
+      descAnimSpeed.textContent = speed + '×';
       highlightPose(state.currentState || 'idle');
     } catch (e) {
       console.warn('[settings] 读取状态失败:', e.message);
