@@ -18,14 +18,15 @@ let win = null;
 let hoverTimer = null;
 let lastHoverState = null;
 let tray = null;        // 系统托盘
-let settingsWin = null; // 设置窗口
-let chatWin = null;     // 聊天对话框窗口
+let chatWin = null;     // 统一面板窗口（对话 Tab + 设置 Tab）
 let isQuitting = false; // 是否真正退出（托盘常驻时隐藏不等于退出）
 let currentPetState = 'idle'; // 宠物当前姿势（主进程记忆，供设置窗口高亮）
 let autoPose = true;          // 姿势是否跟随 AI/状态机自动切换
-let chatVisible = false;      // 对话框是否处于显示态（hover 控制）
-let chatHideTimer = null;     // 对话框延迟隐藏定时器
-let silentMode = false;       // 静默模式：仅保留桌宠与手柄，隐藏对话框
+let chatVisible = false;      // 面板是否处于显示态（hover 控制）
+let chatHideTimer = null;     // 面板延迟隐藏定时器
+let silentMode = false;       // 静默模式：仅保留桌宠与手柄，隐藏面板
+let panelPinned = false;      // 设置 Tab 激活时固定面板，不随 hover 隐藏
+let currentPanelTab = 'chat'; // 当前激活的面板 Tab
 
 /* ---------- 单实例锁：防止多开导致数据互相覆盖 ---------- */
 const gotLock = app.requestSingleInstanceLock();
@@ -48,7 +49,7 @@ const companionFile = () => path.join(app.getPath('userData'), 'companion.json')
 const prefsFile = () => path.join(app.getPath('userData'), 'prefs.json');
 
 let companion = { firstSeen: Date.now(), lastSeen: Date.now(), interactions: 0, chats: 0 };
-let prefs = { userName: '', chatSize: null, lastUpdatePrompted: '', theme: '#e8a0bf', skinId: '' };
+let prefs = { userName: '', panelSize: null, lastUpdatePrompted: '', theme: '#e8a0bf', skinId: '', petName: '' };
 
 function loadCompanion() {
   try {
@@ -72,9 +73,9 @@ function loadPrefs() {
   try {
     const raw = JSON.parse(fs.readFileSync(prefsFile(), 'utf8'));
     if (raw && typeof raw.userName === 'string') prefs.userName = raw.userName.slice(0, 20);
-    if (raw && raw.chatSize && typeof raw.chatSize.w === 'number' && typeof raw.chatSize.h === 'number') {
-      prefs.chatSize = clampChatSize(raw.chatSize.w, raw.chatSize.h);
-      chatSize = prefs.chatSize; // 启动时应用记忆的对话框尺寸
+    if (raw && raw.panelSize && typeof raw.panelSize.w === 'number' && typeof raw.panelSize.h === 'number') {
+      prefs.panelSize = clampPanelSize(raw.panelSize.w, raw.panelSize.h);
+      panelSize = prefs.panelSize; // 启动时应用记忆的面板尺寸
     }
     if (raw && typeof raw.lastUpdatePrompted === 'string') {
       prefs.lastUpdatePrompted = raw.lastUpdatePrompted.slice(0, 20);
@@ -84,6 +85,9 @@ function loadPrefs() {
     }
     if (raw && typeof raw.skinId === 'string') {
       prefs.skinId = raw.skinId.slice(0, 64);
+    }
+    if (raw && typeof raw.petName === 'string') {
+      prefs.petName = raw.petName.trim().slice(0, 20);
     }
   } catch (e) { /* 默认 */ }
   return prefs;
@@ -134,7 +138,7 @@ ipcMain.on('theme:set', (e, hex) => {
   prefs.theme = hex.toLowerCase();
   savePrefs();
   const payload = prefs.theme;
-  [win, chatWin, settingsWin].forEach((w) => {
+  [win, chatWin].forEach((w) => {
     if (w && !w.isDestroyed()) w.webContents.send('theme:changed', payload);
   });
 });
@@ -147,14 +151,14 @@ const MIN_SCALE = 0.45;    // 最小 180×252
 const MAX_SCALE = 2.0;     // 最大 800×1120
 let petScale = DEFAULT_SCALE; // 默认以默认尺寸启动
 
-/* 聊天对话框尺寸（支持自定义大小，范围钳制） */
-const CHAT_W = 320;
-const CHAT_H = 230;
-const CHAT_MIN_W = 280;
-const CHAT_MIN_H = 210;
-const CHAT_MAX_W = 760;
-const CHAT_MAX_H = 620;
-let chatSize = { w: CHAT_W, h: CHAT_H }; // 当前对话框尺寸（自定义后记忆于 prefs）
+/* 面板统一尺寸（对话 / 设置共用一套，切换 Tab 不再调整窗口） */
+const PANEL_W = 520;
+const PANEL_H = 620;
+const PANEL_MIN_W = 480;
+const PANEL_MIN_H = 560;
+const PANEL_MAX_W = 760;
+const PANEL_MAX_H = 620;
+let panelSize = { w: PANEL_W, h: PANEL_H }; // 当前面板尺寸（自定义后记忆于 prefs）
 
 function createWindow() {
   win = new BrowserWindow({
@@ -204,38 +208,39 @@ function isPointInBounds(cursor, b) {
 /** 根据宠物窗口位置布局对话框：优先下方，其次右侧，最后左侧（边界钳制） */
 function layoutChatWindow() {
   if (!chatWin || chatWin.isDestroyed() || !win || win.isDestroyed()) return;
+  if (chatVisible) return; // 面板正在显示/被拖拽时不动，只在隐藏态跟随宠物
   const pb = win.getBounds();
   const wa = screen.getDisplayMatching(pb).workArea;
   const gap = 10;
   let x, y;
-  if (pb.y + pb.height + gap + chatSize.h <= wa.y + wa.height) {
+  if (pb.y + pb.height + gap + panelSize.h <= wa.y + wa.height) {
     // 下方：水平居中于宠物
-    x = Math.round(pb.x + (pb.width - chatSize.w) / 2);
+    x = Math.round(pb.x + (pb.width - panelSize.w) / 2);
     y = pb.y + pb.height + gap;
-  } else if (pb.x + pb.width + gap + chatSize.w <= wa.x + wa.width) {
+  } else if (pb.x + pb.width + gap + panelSize.w <= wa.x + wa.width) {
     // 右侧：垂直居中
     x = pb.x + pb.width + gap;
-    y = Math.round(pb.y + (pb.height - chatSize.h) / 2);
+    y = Math.round(pb.y + (pb.height - panelSize.h) / 2);
   } else {
     // 左侧：垂直居中
-    x = pb.x - gap - chatSize.w;
-    y = Math.round(pb.y + (pb.height - chatSize.h) / 2);
+    x = pb.x - gap - panelSize.w;
+    y = Math.round(pb.y + (pb.height - panelSize.h) / 2);
   }
-  x = Math.max(wa.x + 4, Math.min(x, wa.x + wa.width - chatSize.w - 4));
-  y = Math.max(wa.y + 4, Math.min(y, wa.y + wa.height - chatSize.h - 4));
-  chatWin.setBounds({ x, y, width: chatSize.w, height: chatSize.h });
+  x = Math.max(wa.x + 4, Math.min(x, wa.x + wa.width - panelSize.w - 4));
+  y = Math.max(wa.y + 4, Math.min(y, wa.y + wa.height - panelSize.h - 4));
+  chatWin.setBounds({ x, y, width: panelSize.w, height: panelSize.h });
 }
 
 /** 创建聊天对话框窗口（平时透明隐藏，hover 显示） */
 function createChatWindow() {
   chatWin = new BrowserWindow({
-    width: chatSize.w,
-    height: chatSize.h,
+    width: panelSize.w,
+    height: panelSize.h,
     transparent: true,
     frame: false,
     alwaysOnTop: true,
     skipTaskbar: true,
-    resizable: false,
+    resizable: true, // 统一面板:允许拖拽边缘调整大小(程序化 setSize 也不受限制)
     hasShadow: false,
     backgroundColor: '#00000000',
     webPreferences: {
@@ -245,56 +250,71 @@ function createChatWindow() {
     },
   });
   chatWin.setAlwaysOnTop(true, 'screen-saver');
-  chatWin.loadFile(path.join(__dirname, 'renderer', 'chat.html'));
+  chatWin.loadFile(path.join(__dirname, 'renderer', 'panel.html'));
+  // 渲染层加载完成后补发当前显示状态（启动期间的事件可能被丢弃）
+  chatWin.webContents.once('did-finish-load', () => {
+    if (chatWin && !chatWin.isDestroyed()) {
+      chatWin.webContents.send('chat:hover-state', chatVisible);
+    }
+  });
   chatWin.on('closed', () => { chatWin = null; });
   layoutChatWindow();
 }
 
 /** 钳制对话框尺寸到允许范围（可选工作区上限） */
-function clampChatSize(w, h, wa) {
-  let W = Math.max(CHAT_MIN_W, Math.min(CHAT_MAX_W, Math.round(Number(w) || CHAT_W)));
-  let H = Math.max(CHAT_MIN_H, Math.min(CHAT_MAX_H, Math.round(Number(h) || CHAT_H)));
-  if (wa) {
-    W = Math.min(W, Math.max(CHAT_MIN_W, wa.width - 16));
-    H = Math.min(H, Math.max(CHAT_MIN_H, wa.height - 16));
+function clampPanelSize(w, h) {
+  return {
+    w: Math.max(PANEL_MIN_W, Math.min(PANEL_MAX_W, Math.round(Number(w) || PANEL_W))),
+    h: Math.max(PANEL_MIN_H, Math.min(PANEL_MAX_H, Math.round(Number(h) || PANEL_H))),
+  };
+}
+
+/** 面板窗口按目标尺寸调整(创建时 resizable:true,setSize 直接生效) */
+function applyPanelSize() {
+  if (!chatWin || chatWin.isDestroyed()) return;
+  chatWin.setMinimumSize(PANEL_MIN_W, PANEL_MIN_H);
+  chatWin.setSize(panelSize.w, panelSize.h, false);
+}
+
+/** 切换面板 Tab:记录状态 → 调整窗口尺寸 → 固定/取消固定 → 同步渲染层 */
+function switchPanelTab(tab) {
+  if (tab !== 'chat' && tab !== 'settings') return;
+  const changed = currentPanelTab !== tab;
+  currentPanelTab = tab;
+  if (tab === 'chat') panelPinned = false; // 回到对话 Tab 解除托盘 pin
+  // 窗口尺寸/位置在切换时保持不变(统一尺寸,用户拖到哪就在哪)
+  if (changed && chatWin && !chatWin.isDestroyed()) {
+    chatWin.webContents.send('panel:switch', tab);
   }
-  return { w: W, h: H };
 }
 
 /** 应用对话框尺寸：钳制 → 记忆 → setSize；位置仅做边界钳制，保持拖拽锚点稳定 */
-function applyChatSize(w, h) {
-  if (!chatWin || chatWin.isDestroyed()) return;
-  const wa = screen.getDisplayMatching(win && !win.isDestroyed() ? win.getBounds() : chatWin.getBounds()).workArea;
-  const size = clampChatSize(w, h, wa);
-  chatSize = size;
-  prefs.chatSize = size;
-  savePrefs();
-  // 窗口创建时 resizable:false，setSize 会被忽略——缩放前临时允许，完成后恢复
-  const wasResizable = chatWin.isResizable();
-  if (!wasResizable) chatWin.setResizable(true);
-  chatWin.setSize(size.w, size.h, false);
-  chatWin.setResizable(wasResizable);
-  const [x, y] = chatWin.getPosition();
-  const cx = Math.max(wa.x + 4, Math.min(x, wa.x + wa.width - size.w - 4));
-  const cy = Math.max(wa.y + 4, Math.min(y, wa.y + wa.height - size.h - 4));
-  chatWin.setPosition(cx, cy);
-}
-
-/* 对话框自定义大小（渲染层拖拽右下角手柄触发） */
+/* 面板自定义大小（渲染层拖拽右下角手柄触发）：按当前 Tab 记忆 */
 ipcMain.on('chat:resize', (e, payload) => {
   if (!payload || typeof payload.w !== 'number' || typeof payload.h !== 'number') return;
-  applyChatSize(payload.w, payload.h);
+  panelSize = clampPanelSize(payload.w, payload.h);
+  prefs.panelSize = panelSize;
+  savePrefs();
+  applyPanelSize();
 });
 
 /** 恢复默认大小 */
-ipcMain.on('chat:reset-size', () => applyChatSize(CHAT_W, CHAT_H));
+ipcMain.on('chat:reset-size', () => {
+  panelSize = { w: PANEL_W, h: PANEL_H };
+  prefs.panelSize = panelSize;
+  savePrefs();
+  applyPanelSize();
+});
 
 /** 切换对话框显示态（通知渲染层做透明度动画） */
 function setChatVisible(v) {
-  if (chatVisible === v) return;
+  const changed = chatVisible !== v;
   chatVisible = v;
   if (chatWin && !chatWin.isDestroyed()) {
+    // 即使状态没变也重发：渲染层未就绪时事件可能丢失，重发幂等可自愈
     chatWin.webContents.send('chat:hover-state', v);
+    // 隐藏时窗口点击穿透（透明面板不再遮挡桌面操作）
+    if (changed) chatWin.setIgnoreMouseEvents(!v);
   }
 }
 
@@ -859,7 +879,7 @@ ipcMain.on('skins:set-active', (e, skinId) => {
   // 广播给所有窗口：宠物窗口重载皮肤，设置窗口刷新高亮与姿势列表
   const skin = loadSkins().find((s) => s.id === prefs.skinId);
   const payload = { skinId: prefs.skinId, petName: skin ? skin.petName : '蕾米' };
-  [win, chatWin, settingsWin].forEach((w) => {
+  [win, chatWin].forEach((w) => {
     if (w && !w.isDestroyed()) w.webContents.send('skin:changed', payload);
   });
   updateTrayTooltip();
@@ -868,7 +888,13 @@ ipcMain.on('skins:set-active', (e, skinId) => {
 /** 当前宠物名：取启用皮肤 petName，缺省「蕾米」（带缓存，避免每次 AI 请求重复扫盘） */
 let petNameCache = { skinId: null, name: '蕾米' };
 function getPetName() {
-  if (petNameCache.skinId === (prefs.skinId || '')) return petNameCache.name;
+  const key = (prefs.skinId || '') + '|' + (prefs.petName || '');
+  if (petNameCache.skinId === key) return petNameCache.name;
+  // 优先级：用户自定义名（设置里可编辑） > 皮肤 petName > 默认
+  if (prefs.petName) {
+    petNameCache = { skinId: key, name: prefs.petName };
+    return prefs.petName;
+  }
   let name = '蕾米';
   try {
     const skins = loadSkins();
@@ -877,11 +903,22 @@ function getPetName() {
       name = (active || skins[0]).petName || '蕾米';
     }
   } catch (e) { /* 保持默认 */ }
-  petNameCache = { skinId: prefs.skinId || '', name };
+  petNameCache = { skinId: key, name };
   return name;
 }
 
 ipcMain.handle('pet:get-name', () => getPetName());
+
+/** 设置里编辑宠物名：保存并广播（聊天气泡 / 标题 / 托盘 / AI 人设全局生效） */
+ipcMain.on('pet:set-name', (e, name) => {
+  prefs.petName = (typeof name === 'string' ? name : '').trim().slice(0, 20);
+  savePrefs();
+  const payload = { skinId: prefs.skinId, petName: getPetName() };
+  [win, chatWin].forEach((w) => {
+    if (w && !w.isDestroyed()) w.webContents.send('pet:name-changed', payload);
+  });
+  updateTrayTooltip();
+});
 
 /** 更新托盘悬浮提示（跟随宠物名） */
 function updateTrayTooltip() {
@@ -1012,7 +1049,7 @@ ipcMain.on('reminder:start-pomodoro', (e, payload) => {
   reminders.pomodoro = { running: true, endAt: Date.now() + min * 60000, durationMin: min };
   saveReminders();
   const remainSec = Math.ceil((reminders.pomodoro.endAt - Date.now()) / 1000);
-  [settingsWin].forEach((w) => {
+  [chatWin].forEach((w) => {
     if (w && !w.isDestroyed()) w.webContents.send('reminder:updated', Object.assign({}, reminders, { pomodoro: Object.assign({}, reminders.pomodoro, { remainSec }) }));
   });
 });
@@ -1020,7 +1057,7 @@ ipcMain.on('reminder:start-pomodoro', (e, payload) => {
 ipcMain.on('reminder:stop-pomodoro', () => {
   reminders.pomodoro = { running: false, endAt: 0, durationMin: reminders.pomodoro.durationMin };
   saveReminders();
-  [settingsWin].forEach((w) => {
+  [chatWin].forEach((w) => {
     if (w && !w.isDestroyed()) w.webContents.send('reminder:updated', Object.assign({}, reminders));
   });
 });
@@ -1031,7 +1068,7 @@ ipcMain.on('reminder:add-alarm', (e, payload) => {
   const label = payload && typeof payload.label === 'string' ? payload.label.slice(0, 60) : '';
   reminders.alarms.push({ id: newAlarmId(), time, label, enabled: true, lastFired: '' });
   saveReminders();
-  [settingsWin].forEach((w) => {
+  [chatWin].forEach((w) => {
     if (w && !w.isDestroyed()) w.webContents.send('reminder:updated', Object.assign({}, reminders));
   });
 });
@@ -1039,7 +1076,7 @@ ipcMain.on('reminder:add-alarm', (e, payload) => {
 ipcMain.on('reminder:remove-alarm', (e, id) => {
   reminders.alarms = reminders.alarms.filter((a) => a.id !== id);
   saveReminders();
-  [settingsWin].forEach((w) => {
+  [chatWin].forEach((w) => {
     if (w && !w.isDestroyed()) w.webContents.send('reminder:updated', Object.assign({}, reminders));
   });
 });
@@ -1054,7 +1091,7 @@ ipcMain.on('reminder:toggle-alarm', (e, payload) => {
     a.enabled = !a.enabled;
   }
   saveReminders();
-  [settingsWin].forEach((w) => {
+  [chatWin].forEach((w) => {
     if (w && !w.isDestroyed()) w.webContents.send('reminder:updated', Object.assign({}, reminders));
   });
 });
@@ -1094,7 +1131,7 @@ ipcMain.on('app:quit', () => {
 
 /* ---------- 自动更新（GitHub Releases） ---------- */
 
-const REPO_API = 'https://api.github.com/repos/Dalezhaoz/shiyi';
+const UPDATE_BASE = 'http://120.27.205.96/petai/'; // 自建更新服务器（exe + latest.yml 静态托管）
 
 /** 比较语义化版本号：a > b 返回 1，相等返回 0，a < b 返回 -1 */
 function compareVersions(a, b) {
@@ -1122,36 +1159,41 @@ function cleanupStaleUpdates() {
   } catch (e) { /* ignore */ }
 }
 
-/** 拉取 GitHub 最新 Release 元数据：{ latest, asset } 或 null */
+/** 拉取自建服务器的 latest.yml 元数据：{ latest, asset } 或 { error } */
 async function fetchLatestRelease() {
   try {
-    // 用 net.fetch（Electron 网络栈）：自动遵循系统代理，挂梯子时也能稳定访问 GitHub
-    const resp = await net.fetch(REPO_API + '/releases/latest', {
+    const resp = await net.fetch(UPDATE_BASE + 'latest.yml', {
       headers: { 'User-Agent': 'PetAI-Desktop-Pet' },
     });
-    if (resp.status === 404) return { error: '仓库暂无发布版本' };
+    if (resp.status === 404) return { error: '服务器暂无发布版本' };
     if (!resp.ok) return { error: '检查失败（HTTP ' + resp.status + '）' };
-    const rel = await resp.json();
-    const latest = String(rel.tag_name || '').replace(/^v/i, '');
-    const asset = (rel.assets || []).find((a) => /\.exe$/i.test(a.name));
-    if (!latest || !asset) return { error: '最新版本缺少安装包' };
-    return { latest, asset };
+    const text = await resp.text();
+    // electron-builder 的 latest.yml：version / files[].url / sha512(base64) / size
+    const version = (text.match(/^version:\s*"?([^"\s]+)"?/m) || [])[1];
+    const fileUrl = (text.match(/^files:\s*$[\s\S]*?-\s*url:\s*"?([^"\s]+)"?/m) || [])[1];
+    const pathUrl = (text.match(/^path:\s*"?([^"\s]+)"?/m) || [])[1];
+    const name = fileUrl || pathUrl || '';
+    const size = (text.match(/^size:\s*(\d+)/m) || [])[1];
+    const sha512 = (text.match(/^sha512:\s*"?([^"\s]+)"?/m) || [])[1] || '';
+    if (!version || !name) return { error: '服务器元数据不完整' };
+    return {
+      latest: version,
+      asset: {
+        name,
+        url: UPDATE_BASE + name,
+        size: size ? Number(size) : 0,
+        sha512,
+      },
+    };
   } catch (e) {
     return { error: '网络错误：' + (e.message || String(e)) };
   }
 }
 
-/** 尝试获取 latest.yml 中的 sha512（base64）并转为 hex 用于下载校验；拿不到则返回空串，不阻塞更新 */
-async function fetchSha512(asset) {
+/** latest.yml 的 sha512 为 base64（64 字节哈希），转为 hex 用于下载校验；失败返回空串不阻塞更新 */
+function b64ToHex(b64) {
   try {
-    const ymlUrl = asset.browser_download_url.replace(/[^/]+$/, 'latest.yml');
-    const resp = await net.fetch(ymlUrl, { headers: { 'User-Agent': 'PetAI-Desktop-Pet' } });
-    if (!resp.ok) return '';
-    const text = await resp.text();
-    // electron-builder 的 latest.yml：sha512 为 base64 编码（64 字节哈希）
-    const m = text.match(/sha512:\s*"?([^"\s]+)"?/);
-    if (!m || !/^[A-Za-z0-9+/=]+$/.test(m[1])) return '';
-    const buf = Buffer.from(m[1], 'base64');
+    const buf = Buffer.from(b64, 'base64');
     if (buf.length !== 64) return '';
     return buf.toString('hex');
   } catch (e) {
@@ -1169,10 +1211,10 @@ ipcMain.handle('update:check', async () => {
     hasUpdate: compareVersions(rel.latest, current) > 0,
     latest: rel.latest,
     current,
-    url: rel.asset.browser_download_url,
+    url: rel.asset.url,
     name: rel.asset.name,
     size: rel.asset.size || 0,
-    sha512: await fetchSha512(rel.asset),
+    sha512: b64ToHex(rel.asset.sha512),
   };
 });
 
@@ -1287,10 +1329,14 @@ function startHoverWatch() {
       win.webContents.send('pet:hover-state', inside);
     }
 
-    // 对话框：静默模式下不显示；否则即时显示，延迟隐藏（避免宠物↔对话框之间移动时闪烁）
+    // 面板：静默模式下不显示；托盘打开的设置先固定，鼠标到达宠物/面板后转为普通 hover 显隐
     if (silentMode) {
       if (chatHideTimer) { clearTimeout(chatHideTimer); chatHideTimer = null; }
       setChatVisible(false);
+    } else if (panelPinned) {
+      if (chatHideTimer) { clearTimeout(chatHideTimer); chatHideTimer = null; }
+      if (inside) panelPinned = false; // 鼠标已到达 → 之后按 hover 规则走
+      else setChatVisible(true);
     } else if (inside) {
       if (chatHideTimer) { clearTimeout(chatHideTimer); chatHideTimer = null; }
       setChatVisible(true);
@@ -1304,6 +1350,7 @@ function startHoverWatch() {
 }
 
 ipcMain.handle('pet:hover-watch', () => { startHoverWatch(); });
+ipcMain.handle('chat:get-visible', () => chatVisible);
 
 /* ---------- 睡眠检测（长时间无互动让宠物打盹） ---------- */
 
@@ -1351,7 +1398,6 @@ function togglePetVisible() {
     win.show();
     win.setAlwaysOnTop(true, 'screen-saver');
     if (chatWin && !chatWin.isDestroyed()) chatWin.show();
-    if (settingsWin && !settingsWin.isDestroyed()) settingsWin.focus();
   }
 }
 
@@ -1377,34 +1423,12 @@ function createTray() {
   }
 }
 
-/** 打开设置窗口（单实例） */
+/** 打开设置（统一面板切到设置 Tab；从托盘打开时先固定，鼠标到达面板后转 hover 显隐） */
 function openSettingsWindow() {
-  if (settingsWin && !settingsWin.isDestroyed()) {
-    settingsWin.show();
-    settingsWin.focus();
-    return;
-  }
-  settingsWin = new BrowserWindow({
-    width: 520,
-    height: 620,
-    minWidth: 480,
-    minHeight: 560,
-    transparent: true,
-    frame: false,
-    resizable: true,  // 支持拖拽窗口边缘自定义大小；关闭后重开会新建窗口回到默认尺寸
-    skipTaskbar: true,
-    alwaysOnTop: true,
-    hasShadow: true,
-    backgroundColor: '#00000000',
-    webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
-      contextIsolation: true,
-      nodeIntegration: false,
-    },
-  });
-  settingsWin.setAlwaysOnTop(true, 'floating');
-  settingsWin.loadFile(path.join(__dirname, 'renderer', 'settings.html'));
-  settingsWin.on('closed', () => { settingsWin = null; });
+  if (!chatWin || chatWin.isDestroyed()) return;
+  if (!chatWin.isVisible()) chatWin.show();
+  panelPinned = true;
+  switchPanelTab('settings');
 }
 
 /** 读取当前状态（设置窗口初始化用） */
@@ -1440,7 +1464,7 @@ ipcMain.on('pet:set-pose', (e, state) => {
 /** 宠物渲染进程 → 广播当前姿势变化（AI/交互触发时同步设置窗口高亮） */
 ipcMain.on('pet:state-changed', (e, state) => {
   currentPetState = state;
-  if (settingsWin && !settingsWin.isDestroyed()) settingsWin.webContents.send('pet:state-changed', state);
+  if (chatWin && !chatWin.isDestroyed()) chatWin.webContents.send('pet:state-changed', state);
 });
 
 /** 设置窗口操作 → 同步主窗口 */
@@ -1449,19 +1473,32 @@ ipcMain.on('settings:toggle-visible', togglePetVisible);
 /** 手柄 ☰ 设置键：打开同一个设置窗口 */
 ipcMain.on('pet:open-settings', openSettingsWindow);
 
+/** 统一面板 → 宠物窗口:转发互动项 */
+ipcMain.on('pet:interact', (e, it) => {
+  if (win && !win.isDestroyed()) win.webContents.send('pet:interact', it);
+});
+
+/** 统一面板:渲染层切换 Tab(点击 Tab 栏) */
+ipcMain.on('panel:switch-tab', (e, tab) => {
+  switchPanelTab(tab);
+});
+
 ipcMain.on('settings:set-always-on-top', (e, val) => {
   if (!win || win.isDestroyed()) return;
   win.setAlwaysOnTop(!!val, 'screen-saver');
 });
 
 ipcMain.on('settings:close', () => {
-  if (settingsWin && !settingsWin.isDestroyed()) settingsWin.close();
+  // 关闭设置视图：切回对话 Tab，取消固定；若鼠标不在宠物/面板上则由 hover 逻辑隐藏
+  switchPanelTab('chat');
 });
 
-/** 设置窗口：恢复默认大小（520 × 620，保持当前位置） */
+/** 设置视图：恢复面板默认大小（520 × 620，保持当前位置） */
 ipcMain.on('settings:reset-size', () => {
-  if (!settingsWin || settingsWin.isDestroyed()) return;
-  settingsWin.setSize(520, 620, false);
+  panelSize = { w: PANEL_W, h: PANEL_H };
+  prefs.panelSize = panelSize;
+  savePrefs();
+  applyPanelSize();
 });
 
 /* ---------- 应用生命周期 ---------- */
@@ -1479,6 +1516,17 @@ app.whenReady().then(() => {
   createTray();
   startIdleTick();
   startAutoUpdateCheck(); // 启动后静默检查新版本
+
+
+
+
+
+
+
+
+
+
+
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });

@@ -167,7 +167,7 @@
     const anim = resolveAnimation(state);
     player.setAnimation(anim, true);
     console.log('[pet] state →', state, '| animation →', anim);
-    // 通知主进程，同步设置窗口的姿势高亮
+    // 通知主进程，同步设置窗口的动作高亮
     if (window.pet && typeof window.pet.notifyState === 'function') {
       window.pet.notifyState(state);
     }
@@ -273,11 +273,9 @@
     }
   }
 
-  /* ---------- 手柄显示（主进程鼠标悬停检测） ---------- */
-  const topBar = document.getElementById('top-bar');
+  /* ---------- 悬停检测（主进程鼠标悬停） ---------- */
   window.pet.startHoverWatch().then(() => {
     window.pet.onHoverChange((inside) => {
-      topBar.classList.toggle('show', inside);
       if (inside) wakePet(); // 鼠标进入 → 唤醒
     });
   });
@@ -326,32 +324,8 @@
     }
   });
 
-  /* ---------- 设置：手柄 ☰ 键打开设置窗口 ---------- */
-  document.getElementById('settings-btn').addEventListener('click', () => {
-    window.pet.openSettings();
-  });
-
-  /* ---------- 窗口控制 ---------- */
-  document.getElementById('btn-smaller').addEventListener('click', () => window.pet.resize(-1));
-  document.getElementById('btn-larger').addEventListener('click', () => window.pet.resize(1));
-  document.getElementById('btn-quit').addEventListener('click', () => window.pet.quit());
-
-  /* ---------- 互动：单击随机触发 / 长按弹出菜单选择 ---------- */
-  // 交互按钮位于手柄 no-drag 区域，纯按钮事件不触发窗口拖拽，不会引发放大 bug。
+  /* ---------- 互动：由面板顶栏 ♡ 按钮驱动（pet:interact → 主进程转发） ---------- */
   // match：语义关键词，触发时在当前皮肤的自定义姿态名里模糊匹配，找不到则随机/基准兜底
-  const INTERACTIONS = [
-    { emoji: '♡', label: '摸摸头', match: ['done', 'win', 'cheer', 'happy', '完成', '开心', '胜利'], text: '嘿嘿~ 最喜欢你啦！' },
-    { emoji: '👋', label: '打招呼', match: ['done', 'win', 'cheer', 'happy', 'hi', '打招呼'], text: '嗨~ 一直在等你哦！' },
-    { emoji: '✨', label: '撒个娇', match: ['done', 'win', 'cheer', 'happy', '撒娇'], text: '人家想你了嘛~' },
-    { emoji: '🍬', label: '喂糖果', match: ['done', 'win', 'cheer', 'happy', '吃', '开心'], text: '好甜！谢谢你！' },
-    { emoji: '❓', label: '歪头疑惑', match: ['think', '思考', '想', '疑问', '疑惑', '歪'], text: '嗯？你在看什么呀？' },
-    { emoji: '😴', label: '睡觉觉', match: ['read', '书', '睡', 'zzz', '打盹'], text: '呼…好困，小眯一会儿' },
-  ];
-
-  const interactBtn = document.getElementById('btn-interact');
-  const interactMenu = document.getElementById('interact-menu');
-  let interactPressTimer = null;
-  let interactMenuTimer = null;
 
   /** 触发一个交互：播放动作 + 气泡 + 计入陪伴互动 */
   function playInteraction(it) {
@@ -370,58 +344,9 @@
     }
   }
 
-  /** 构建长按菜单（首次点击时生成，仅一次） */
-  function buildInteractMenu() {
-    if (interactMenu.childElementCount) return;
-    INTERACTIONS.forEach((it) => {
-      const b = document.createElement('button');
-      b.className = 'interact-menu-item';
-      b.innerHTML = '<span class="interact-menu-emoji">' + it.emoji + '</span>' + it.label;
-      b.addEventListener('click', (e) => {
-        e.stopPropagation();
-        hideInteractMenu();
-        playInteraction(it);
-      });
-      interactMenu.appendChild(b);
-    });
-  }
-
-  function showInteractMenu() {
-    buildInteractMenu();
-    interactMenu.hidden = false;
-  }
-  function hideInteractMenu() {
-    interactMenu.hidden = true;
-  }
-
-  // 按下：0.5 秒后弹菜单（长按）；松开：若未长按则视为单击随机触发
-  interactBtn.addEventListener('pointerdown', () => {
-    clearTimeout(interactMenuTimer);
-    interactPressTimer = setTimeout(() => {
-      showInteractMenu();
-      interactPressTimer = null;
-    }, 500);
+  window.pet.onInteract((it) => {
+    if (it && typeof it === 'object') playInteraction(it);
   });
-  interactBtn.addEventListener('pointerup', () => {
-    clearTimeout(interactPressTimer);
-    interactPressTimer = null;
-    // 菜单已弹出：交给菜单项点击处理，不再随机触发
-    if (!interactMenu.hidden) return;
-    const it = INTERACTIONS[Math.floor(Math.random() * INTERACTIONS.length)];
-    playInteraction(it);
-  });
-  // 点击窗口其他区域时收起菜单
-  window.addEventListener('pointerdown', (e) => {
-    if (e.target !== interactBtn && e.target.closest && !e.target.closest('#interact-menu')) {
-      hideInteractMenu();
-    }
-  });
-  // 鼠标离开菜单后延迟收起
-  interactMenu.addEventListener('mouseleave', () => {
-    clearTimeout(interactMenuTimer);
-    interactMenuTimer = setTimeout(hideInteractMenu, 300);
-  });
-  interactMenu.addEventListener('mouseenter', () => clearTimeout(interactMenuTimer));
 
   /* ---------- 睡眠 / 唤醒（长时间无互动打盹，鼠标回来即醒） ---------- */
 

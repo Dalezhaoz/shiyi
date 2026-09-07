@@ -9,18 +9,7 @@
 <body>
   <!-- 宠物舞台：整体系统原生拖拽区（按住宠物移动窗口，无放大 bug） -->
   <main class="stage" id="stage">
-    <!-- 手柄：平时隐藏，鼠标经过宠物或手柄时显示 -->
-    <div class="top-bar" id="top-bar">
-      <button class="bar-btn settings-btn" id="settings-btn" title="设置">☰</button>
-      <div class="bar-actions">
-        <button class="bar-btn interact-btn" id="btn-interact" title="互动：单击随机 / 长按选择">♡</button>
-        <button class="bar-btn" id="btn-smaller" title="缩小">−</button>
-        <button class="bar-btn" id="btn-larger" title="放大">+</button>
-        <button class="bar-btn close" id="btn-quit" title="退出">×</button>
-      </div>
-    </div>
-    <!-- 互动菜单：长按 ♡ 弹出 -->
-    <div class="interact-menu" id="interact-menu" hidden></div>
+    <!-- 控制按钮已合并进面板窗口顶栏（hover 宠物弹出面板） -->
     <div id="player-container"></div>
     <!-- 情绪 / 提醒气泡：平时隐藏，互动或提醒时在宠物上方弹出 -->
     <div class="bubble" id="bubble">

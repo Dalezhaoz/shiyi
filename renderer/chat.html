@@ -20,14 +20,19 @@
 
     <!-- 消息区 -->
     <div class="chat-msgs" id="chat-msgs"></div>
+    <!-- 回到底部 -->
+    <button class="scroll-bottom-btn" id="scroll-bottom-btn" title="回到底部" hidden>↓</button>
+
+    <!-- 快捷提问（新会话时显示） -->
+    <div class="quick-chips" id="quick-chips" hidden></div>
 
     <!-- 输入区 -->
     <div class="chat-input-row">
       <button class="attach-btn" id="capture-btn" title="识别当前屏幕">🖥</button>
       <button class="attach-btn" id="attach-btn" title="上传图片">📎</button>
       <input type="file" id="file-input" accept="image/*" hidden>
-      <input class="chat-input" id="chat-input" type="text" placeholder="和宠物说点什么…" maxlength="200" autocomplete="off" spellcheck="false">
-      <button class="chat-send" id="chat-send" title="发送">发送</button>
+      <textarea class="chat-input" id="chat-input" rows="1" placeholder="和宠物说点什么…" maxlength="500" autocomplete="off" spellcheck="false"></textarea>
+      <button class="chat-send" id="chat-send" title="发送">↑</button>
     </div>
     <!-- 待发送图片预览 -->
     <div class="attach-preview" id="attach-preview" hidden>

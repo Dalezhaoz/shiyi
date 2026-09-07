@@ -13,8 +13,14 @@ contextBridge.exposeInMainWorld('pet', {
   /** 皮肤：切换启用皮肤（保存并广播） */
   setActiveSkin: (skinId) => ipcRenderer.send('skins:set-active', skinId),
 
-  /** 皮肤：获取当前宠物名（启用皮肤的 petName，缺省「蕾米」） */
+  /** 皮肤：获取当前宠物名（用户自定义优先，其次皮肤 petName，缺省「蕾米」） */
   getPetName: () => ipcRenderer.invoke('pet:get-name'),
+
+  /** 编辑宠物名（设置 → 显示）：保存并广播 */
+  setPetName: (name) => ipcRenderer.send('pet:set-name', name),
+
+  /** 宠物名变化广播（payload: { skinId, petName }） */
+  onPetNameChanged: (cb) => ipcRenderer.on('pet:name-changed', (e, payload) => cb(payload)),
 
   /** 皮肤：监听切换广播（payload: { skinId, petName }） */
   onSkinChanged: (cb) => ipcRenderer.on('skin:changed', (e, payload) => cb(payload)),
@@ -34,6 +40,19 @@ contextBridge.exposeInMainWorld('pet', {
 
   /** 聊天对话框：监听 hover 显示/隐藏指令 */
   onChatHover: (cb) => ipcRenderer.on('chat:hover-state', (e, inside) => cb(inside)),
+
+  /** 聊天对话框：拉取当前显示状态（渲染层初始化时自愈丢事件） */
+  getChatVisible: () => ipcRenderer.invoke('chat:get-visible'),
+
+  /** 统一面板：渲染层切换 Tab（chat/settings），主进程据此调整窗口大小与固定状态 */
+  panelSwitchTab: (tab) => ipcRenderer.send('panel:switch-tab', tab),
+
+  /** 统一面板：主进程通知切换 Tab（托盘右键打开设置） */
+  onPanelSwitch: (cb) => ipcRenderer.on('panel:switch', (e, tab) => cb(tab)),
+
+  /** 互动：面板顶栏 ♡ 发送互动项到宠物窗口播放（{ emoji, text, match }） */
+  interact: (it) => ipcRenderer.send('pet:interact', it),
+  onInteract: (cb) => ipcRenderer.on('pet:interact', (e, it) => cb(it)),
 
   /** 对话历史：获取会话概要（编号/时间/消息数） */
   getChatState: () => ipcRenderer.invoke('chat:get-state'),

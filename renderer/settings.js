@@ -1,6 +1,6 @@
 /**
  * AI 桌面宠物 — 设置窗口
- * 职责：左列导航 + 右列子菜单；显示/置顶/跟随AI 开关、姿势切换、关于、退出
+ * 职责：左列导航 + 右列子菜单；显示/置顶/跟随AI 开关、动作切换、关于、退出
  */
 (function () {
   'use strict';
@@ -78,14 +78,14 @@
     }
   });
 
-  /* ---------- 姿势折叠子菜单 ---------- */
+  /* ---------- 动作折叠子菜单 ---------- */
 
   const fold = document.getElementById('pose-fold');
   document.getElementById('fold-toggle').addEventListener('click', () => {
     fold.classList.toggle('collapsed');
   });
 
-  /* ---------- 姿势切换 ---------- */
+  /* ---------- 动作切换 ---------- */
 
   /** 常见姿态名 → 显示名兜底；皮肤的 poseNames 优先，其次此表，最后显示姿态名本身 */
   const POSE_LABELS = {
@@ -488,6 +488,8 @@
   // 皮肤切换（payload: { skinId, petName }）→ 同步宠物名 + 刷新皮肤信息
   window.pet.onSkinChanged((payload) => {
     if (payload && payload.petName) applyPetName(payload.petName);
+    // 皮肤切换后输入框同步为新皮肤的默认名(无自定义时)
+    window.pet.getPetName().then((n) => { petNameInput.value = n; }).catch(() => {});
     loadActiveSkinInfo();
   });
 
@@ -525,10 +527,9 @@
     // 当前皮肤信息
     const rows = [
       ['皮肤', skin ? skin.name : '未加载'],
-      ['作者', skin ? skin.author || '—' : '—'],
       ['版本', skin ? skin.version : '—'],
       ['素材来源', skin ? skin.source || '—' : '—'],
-      ['姿态数', skin ? skinPoseEntries(skin).length + ' 个' : '—'],
+      ['动作数', skin ? skinPoseEntries(skin).length + ' 个' : '—'],
     ];
     const meta = document.createElement('div');
     meta.innerHTML = rows.map(([label, value]) =>
@@ -536,7 +537,7 @@
       '<span class="about-value">' + value + '</span></div>'
     ).join('');
 
-    // 姿态映射明细：皮肤自定义姿态名（显示名）→ 动画名
+    // 动作映射明细：皮肤自定义姿态名（显示名）→ 动画名
     const poseEntries = skin ? skinPoseEntries(skin) : [];
     if (poseEntries.length) {
       const mapBlock = document.createElement('div');
@@ -572,44 +573,10 @@
 
   /* ---------- 关于 PetAI ---------- */
 
-  function renderAppAbout() {
-    window.pet.getAppInfo().then((info) => {
-      document.getElementById('app-about-name').textContent = info.name || 'PetAI';
-      document.getElementById('app-about-desc').textContent = info.description || 'AI 桌面宠物';
-      document.getElementById('app-about-version').textContent = 'v' + (info.version || '—');
-      const rows = [
-        ['作者', info.author || '—'],
-        ['主页', info.homepage || '—'],
-      ];
-      const aboutAppInfo = document.getElementById('about-app-info');
-      // 只重建作者 / 主页行；版本行（含更新按钮）保持原位，避免丢失点击事件
-      Array.from(aboutAppInfo.querySelectorAll('.about-row:not(.about-row-version)')).forEach((el) => el.remove());
-      rows.forEach(([label, value]) => {
-        const div = document.createElement('div');
-        div.className = 'about-row';
-        div.innerHTML = '<span class="about-label">' + label + '</span>' +
-          '<span class="about-value about-value-link">' + value + '</span>';
-        aboutAppInfo.appendChild(div);
-      });
-      // 主页行可点击，在浏览器打开 GitHub 主页
-      const homepageRow = aboutAppInfo.children[2];
-      if (homepageRow) {
-        homepageRow.classList.add('about-row-clickable');
-        homepageRow.addEventListener('click', () => {
-          if (info.homepage) window.pet.openExternal(info.homepage);
-        });
-      }
-      document.getElementById('btn-open-repo').addEventListener('click', () => {
-        if (info.repo) window.pet.openExternal(info.repo);
-      });
-    }).catch((e) => {
-      console.warn('[settings] 应用信息读取失败:', e.message);
-    });
-  }
-
-  /* ---------- 自动更新 ---------- */
+  /* ---------- 自动更新（关于面板） ---------- */
 
   const updateBtn = document.getElementById('btn-update');
+  const updateStatus = document.getElementById('update-status');
   let updateInfo = null; // 最近一次检查结果
 
   function setUpdateBtn(text, opts) {
@@ -658,11 +625,18 @@
   });
   window.pet.onUpdateDone(() => {
     setUpdateBtn('安装中…', { disabled: true });
+    updateStatus.textContent = '新版本已下载，正在安装并重启';
   });
   window.pet.onUpdateError((msg) => {
     setUpdateBtn('下载失败', { title: msg });
+    updateStatus.textContent = '更新失败：' + msg;
     setTimeout(() => setUpdateBtn('检查更新'), 3000);
   });
+
+  // 初始化版本号
+  window.pet.getAppInfo().then((info) => {
+    document.getElementById('app-about-version').textContent = 'v' + (info.version || '—');
+  }).catch(() => {});
 
   /* ---------- 提醒面板（番茄钟 + 每日闹钟） ---------- */
 
@@ -796,24 +770,36 @@
     userNameStatus.className = 'ai-status ok';
   });
 
-  /* ---------- 陪伴记录（关于 PetAI） ---------- */
+  /* ---------- 宠物名字编辑（显示面板） ---------- */
 
-  async function loadCompanionStats() {
-    const box = document.getElementById('companion-stats');
-    try {
-      const c = await window.pet.getCompanionStats();
-      const days = Math.max(1, Math.floor((Date.now() - (c.firstSeen || Date.now())) / 86400000) + 1);
-      const firstDate = new Date(c.firstSeen || Date.now());
-      const firstKey = firstDate.getFullYear() + '年' + (firstDate.getMonth() + 1) + '月' + firstDate.getDate() + '日';
-      box.innerHTML =
-        '<div class="companion-stat"><span>陪伴天数</span><b>' + days + ' 天</b></div>' +
-        '<div class="companion-stat"><span>互动次数</span><b>' + (c.interactions || 0) + ' 次</b></div>' +
-        '<div class="companion-stat"><span>对话条数</span><b>' + (c.chats || 0) + ' 条</b></div>' +
-        '<div class="companion-stat"><span>初次见面</span><b>' + firstKey + '</b></div>';
-    } catch (e) {
-      box.textContent = '记录加载失败';
+  const petNameInput = document.getElementById('pet-name');
+  const petNameStatus = document.getElementById('pet-name-status');
+
+  window.pet.getPetName().then((name) => {
+    petNameInput.value = name;
+  }).catch(() => {});
+
+  document.getElementById('save-pet-name').addEventListener('click', () => {
+    const name = petNameInput.value.trim();
+    if (!name) {
+      petNameStatus.textContent = '名字不能为空';
+      petNameStatus.className = 'ai-status err';
+      return;
+    }
+    window.pet.setPetName(name);
+    petNameStatus.textContent = '已保存';
+    petNameStatus.className = 'ai-status ok';
+    setTimeout(() => { petNameStatus.textContent = ''; }, 2000);
+  });
+
+  // 皮肤切换 / 名字修改 → 刷新标题与输入框
+  function applyPetNameExternal(payload) {
+    if (payload && payload.petName) {
+      applyPetName(payload.petName);
+      petNameInput.value = payload.petName;
     }
   }
+  window.pet.onPetNameChanged(applyPetNameExternal);
 
   /* ---------- 状态同步 ---------- */
 
@@ -875,14 +861,13 @@
     loadAiPanel();
     pollReminder();
     loadUserName();
-    loadCompanionStats();
     loadCurrentTheme();
     window.pet.getPetName().then(applyPetName).catch(() => {});
+    window.pet.getPetName().then((n) => { petNameInput.value = n; }).catch(() => {});
     try {
       const skins = await window.pet.getSkins();
       allSkins = skins;
       await loadActiveSkinInfo();
-      renderAppAbout();
       renderChatHistory();
       await refreshState(); // 皮肤就绪后再次对齐高亮
     } catch (e) {
