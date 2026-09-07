@@ -8,7 +8,6 @@
   const swVisible = document.getElementById('sw-visible');
   const swTop = document.getElementById('sw-top');
   const swAuto = document.getElementById('sw-auto');
-  const swSilent = document.getElementById('sw-silent');
   const btnClose = document.getElementById('btn-close');
   const btnQuit = document.getElementById('btn-quit');
 
@@ -821,7 +820,6 @@
       swVisible.setAttribute('aria-checked', String(!!state.petVisible));
       swTop.setAttribute('aria-checked', String(!!state.alwaysOnTop));
       swAuto.setAttribute('aria-checked', String(!!state.autoPose));
-      swSilent.setAttribute('aria-checked', String(!!state.silentMode));
       const speed = Number(state.animSpeed) || 0.75;
       animSpeedSlider.value = speed;
       descAnimSpeed.textContent = speed + '×';
@@ -850,12 +848,6 @@
     const next = swAuto.getAttribute('aria-checked') !== 'true';
     swAuto.setAttribute('aria-checked', String(next));
     window.pet.setAutoPose(next);
-  });
-
-  swSilent.addEventListener('click', () => {
-    const next = swSilent.getAttribute('aria-checked') !== 'true';
-    swSilent.setAttribute('aria-checked', String(next));
-    window.pet.setSilentMode(next);
   });
 
   btnClose.addEventListener('click', () => window.pet.closeSettings());

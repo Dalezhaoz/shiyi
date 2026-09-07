@@ -24,7 +24,6 @@ let currentPetState = 'idle'; // 宠物当前姿势（主进程记忆，供设�
 let autoPose = true;          // 姿势是否跟随 AI/状态机自动切换
 let chatVisible = false;      // 面板是否处于显示态（hover 控制）
 let chatHideTimer = null;     // 面板延迟隐藏定时器
-let silentMode = false;       // 静默模式：仅保留桌宠与手柄，隐藏面板
 let panelPinned = false;      // 设置 Tab 激活时固定面板，不随 hover 隐藏
 let currentPanelTab = 'chat'; // 当前激活的面板 Tab
 
@@ -1394,37 +1393,50 @@ ipcMain.on('pet:resize', (e, dir) => {
 
 /* ---------- 系统托盘 & 设置窗口 ---------- */
 
-/** 显示/隐藏宠物主窗口（面板保留：设置里的开关要能原地切回） */
+/** 显示/隐藏宠物主窗口（面板保留：设置里的开关要能原地切回；隐藏时宠物挂起） */
 function togglePetVisible() {
   if (!win || win.isDestroyed()) return;
   if (win.isVisible()) {
     win.hide();
+    win.webContents.send('pet:silent-changed', true); // 挂起：停止动作/休息/气泡
   } else {
     win.show();
     win.setAlwaysOnTop(true, 'screen-saver');
+    win.webContents.send('pet:silent-changed', false); // 恢复自主行为
   }
+  refreshTrayMenu();
 }
 
-/** 创建系统托盘：左键显隐宠物，右键打开设置 */
+/** 创建系统托盘：菜单含显示宠物开关 / 设置 / 退出；左键 mac 弹菜单、Windows 切换显隐 */
 function createTray() {
   const iconPath = path.join(__dirname, 'assets', 'tray-icon.png');
   const icon = nativeImage.createFromPath(iconPath);
   tray = new Tray(icon.isEmpty() ? nativeImage.createEmpty() : icon.resize({ width: 16, height: 16 }));
   updateTrayTooltip();
+  refreshTrayMenu();
 
-  tray.on('click', togglePetVisible);          // 左键：显示/隐藏宠物
-  tray.on('right-click', openSettingsWindow);  // 右键：打开设置
+  tray.on('click', () => {
+    if (process.platform === 'darwin') tray.popUpContextMenu();
+    else togglePetVisible();
+  });
+}
 
-  // 兜底：图标文件缺失时也提供菜单入口
-  if (icon.isEmpty()) {
-    const fallback = Menu.buildFromTemplate([
-      { label: '显示/隐藏宠物', click: togglePetVisible },
-      { label: '设置', click: openSettingsWindow },
-      { type: 'separator' },
-      { label: '退出', click: () => { isQuitting = true; app.quit(); } },
-    ]);
-    tray.setContextMenu(fallback);
-  }
+/** 重建托盘菜单（显示宠物勾选随状态刷新） */
+function refreshTrayMenu() {
+  if (!tray || tray.isDestroyed()) return;
+  const menu = Menu.buildFromTemplate([
+    {
+      label: '显示宠物',
+      type: 'checkbox',
+      checked: !!(win && !win.isDestroyed() && win.isVisible()),
+      click: togglePetVisible,
+    },
+    { type: 'separator' },
+    { label: '设置', click: openSettingsWindow },
+    { type: 'separator' },
+    { label: '退出', click: () => { isQuitting = true; app.quit(); } },
+  ]);
+  tray.setContextMenu(menu);
 }
 
 /** 打开设置（统一面板切到设置 Tab；从托盘打开时先固定，鼠标到达面板后转 hover 显隐） */
@@ -1441,16 +1453,11 @@ ipcMain.handle('settings:get-state', () => ({
   alwaysOnTop: !!(win && !win.isDestroyed() && win.isAlwaysOnTop()),
   currentState: currentPetState,
   autoPose,
-  silentMode,
   animSpeed: clampAnimSpeed(prefs.animSpeed || DEFAULT_ANIM_SPEED),
 }));
 
 /** 设置窗口 → 切换静默模式 */
-ipcMain.on('pet:set-silent', (e, val) => {
-  silentMode = !!val;
-  // 同步宠物窗口：静默时停止自主动作/打盹/气泡，保持静止（面板不受影响）
-  if (win && !win.isDestroyed()) win.webContents.send('pet:silent-changed', silentMode);
-});
+
 
 /** 设置窗口 → 调整动作速度系数 */
 ipcMain.on('pet:set-anim-speed', (e, val) => {

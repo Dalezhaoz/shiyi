@@ -114,9 +114,6 @@ contextBridge.exposeInMainWorld('pet', {
   /** 设置窗口：读取当前状态（宠物是否可见 / 是否置顶） */
   getSettingsState: () => ipcRenderer.invoke('settings:get-state'),
 
-  /** 切换静默模式（仅保留桌宠与手柄，隐藏对话框） */
-  setSilentMode: (val) => ipcRenderer.send('pet:set-silent', val),
-
   /** 显示/隐藏宠物 */
   togglePetVisible: () => ipcRenderer.send('settings:toggle-visible'),
 
@@ -147,7 +144,7 @@ contextBridge.exposeInMainWorld('pet', {
   /** 宠物窗口：监听自动模式变化 */
   onAutoPoseChange: (cb) => ipcRenderer.on('pet:auto-pose-changed', (e, val) => cb(val)),
 
-  /** 宠物窗口：监听静默模式变化（静默时停止自主行为保持静止） */
+  /** 宠物窗口：监听挂起/恢复（宠物隐藏时挂起，显示时恢复） */
   onSilentChanged: (cb) => ipcRenderer.on('pet:silent-changed', (e, val) => cb(val)),
 
   /** 动作速度：设置滑杆实时调整（0.3~2.0） */

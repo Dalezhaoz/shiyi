@@ -17,10 +17,12 @@
   let skinLoadToken = 0;   // 皮肤加载序列号：连续切换时丢弃迟到的旧回调
   let currentState = 'idle';
   let autoPose = true;     // 跟随 AI：自动模式（与设置窗口同步）
-  let silentMode = false;  // 静默模式：停止自主动作/打盹/气泡，保持静止
+  let suspended = false;    // 宠物隐藏时挂起：停止动作/休息/气泡
   let animSpeed = 0.75;     // 动作速度系数（设置里可调，0.3~2.0）
-  let isSleeping = false;  // 打盹中（长时间无互动）
+  let restState = 'active'; // 休息状态：active 正常 | still 不动 | sleep 趴着睡觉
+  let lastActivity = Date.now(); // 最近一次互动时间（20 秒无互动进入休息）
   let lastIdleMinutes = 0; // 最近一次空闲分钟数（主进程推送）
+  const REST_IDLE_MS = 20000;
 
   /** 当前宠物名：皮肤 petName → 皮肤名 → 「蕾米」 */
   function petName() {
@@ -101,7 +103,7 @@
 
   /** 播放一个自主动作：随机挑一个姿态，持续 4~13 秒后回基准姿态 */
   function playAction() {
-    if (!player || !autoPose || silentMode) return;
+    if (!player || !autoPose || suspended || restState !== 'active') return;
     if (Date.now() < interactionLock) return; // 交互期间不打扰
     const base = basePose();
     const act = randomActionPose();
@@ -282,7 +284,10 @@
   /* ---------- 悬停检测（主进程鼠标悬停） ---------- */
   window.pet.startHoverWatch().then(() => {
     window.pet.onHoverChange((inside) => {
-      if (inside) wakePet(); // 鼠标进入 → 唤醒
+      if (inside) {
+        markActivity();
+        exitRest(); // 鼠标进入 → 结束休息
+      }
     });
   });
 
@@ -307,7 +312,7 @@
   window.pet.onAutoPoseChange((val) => {
     autoPose = !!val;
     console.log('[pet] 跟随 AI 模式 →', autoPose);
-    if (autoPose && !silentMode) {
+    if (autoPose && !suspended) {
       startAutoActions();   // 恢复自主行为
     } else {
       stopAutoActions();    // 手动锁定：暂停自主行为
@@ -322,16 +327,16 @@
     }
   });
 
-  /* ---------- 静默模式：停止自主行为，回到基准姿态保持静止 ---------- */
+  /* ---------- 挂起/恢复（显示宠物开关驱动：隐藏时挂起，显示时恢复） ---------- */
   window.pet.onSilentChanged((val) => {
-    silentMode = !!val;
-    console.log('[pet] 静默模式 →', silentMode);
-    if (silentMode) {
+    suspended = !!val;
+    if (suspended) {
       stopAutoActions();
       const base = basePose();
       if (base) setState(base);
-    } else if (autoPose) {
-      startAutoActions();
+    } else {
+      markActivity();
+      exitRest();
     }
   });
 
@@ -356,6 +361,8 @@
 
   /** 触发一个交互：播放动作 + 气泡 + 计入陪伴互动 */
   function playInteraction(it) {
+    markActivity();
+    exitRest();
     lockInteraction(3200);
     const target = findPose(it.match) || randomActionPose() || basePose();
     if (target) setState(target);
@@ -375,31 +382,43 @@
     if (it && typeof it === 'object') playInteraction(it);
   });
 
-  /* ---------- 睡眠 / 唤醒（长时间无互动打盹，鼠标回来即醒） ---------- */
+  /* ---------- 休息状态（20 秒无互动：随机不动 / 趴着睡觉，有互动即恢复） ---------- */
 
-  function sleepPet() {
-    if (isSleeping) return;
-    isSleeping = true;
-    stopAutoActions(); // 打盹期间不自动动作
-    const pose = findPose(['read', '书', '睡', 'zzz', '打盹']) || basePose();
-    if (pose) setState(pose);
-    showBubble('💤', '呼…没人陪，小睡一会儿 Zzz', 4000);
+  function markActivity() {
+    lastActivity = Date.now();
   }
 
-  function wakePet() {
-    if (!isSleeping) return;
-    isSleeping = false;
-    if (autoPose) startAutoActions();
-    const pose = basePose();
-    if (pose) setState(pose);
-    showBubble('😊', '嗯？你回来啦！', 2200);
+  function enterRest() {
+    if (restState !== 'active' || suspended) return;
+    stopAutoActions();
+    if (Math.random() < 0.5) {
+      // 趴着睡觉：用皮肤的躺倒姿态（无专门睡姿时回退发呆）
+      restState = 'sleep';
+      const pose = findPose(['失败']) || basePose();
+      if (pose) setState(pose);
+    } else {
+      // 不动：回基准姿态，停止随机动作
+      restState = 'still';
+      const base = basePose();
+      if (base) setState(base);
+    }
   }
+
+  function exitRest() {
+    if (restState === 'active') return;
+    restState = 'active';
+    const base = basePose();
+    if (base) setState(base);
+    if (autoPose && !suspended) startAutoActions();
+  }
+
+  // 每 5 秒检查一次闲置
+  setInterval(() => {
+    if (restState === 'active' && Date.now() - lastActivity > REST_IDLE_MS) enterRest();
+  }, 5000);
 
   window.pet.onIdleTick(({ idleMinutes }) => {
     lastIdleMinutes = idleMinutes || 0;
-    if (silentMode) return; // 静默：不打盹不唤醒，保持静止
-    if (lastIdleMinutes >= 10) sleepPet();
-    else if (lastIdleMinutes < 10) wakePet();
   });
 
   /* ---------- 时间感知行为：早晚问候 / 整点报时 / 自言自语 ---------- */
@@ -418,7 +437,7 @@
 
   /** 每 30 秒检查一次时间相关行为（睡眠/静默时不打扰） */
   function timeTick() {
-    if (isSleeping || silentMode) return;
+    if (restState !== 'active' || suspended) return;
     const now = new Date();
     const h = now.getHours();
     const m = now.getMinutes();
@@ -506,9 +525,8 @@
       window.pet.getSettingsState().then((s) => {
         if (s) {
           autoPose = !!s.autoPose;
-          silentMode = !!s.silentMode;
           animSpeed = Number(s.animSpeed) || 0.75;
-          if (autoPose && !silentMode) startAutoActions(); // 皮肤就绪前先启动，playAction 内会兜底
+          if (autoPose && !suspended) startAutoActions(); // 皮肤就绪前先启动，playAction 内会兜底
         }
       }).catch(() => {});
       await loadActiveSkin();
